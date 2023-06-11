@@ -1,19 +1,39 @@
-// codectl version : 1.4.7
-
-
 pipeline {
-    /* In this step, you can define where your job can run.
-    
-     * In more advanced usages, you can have the entire build be run inside of a Docker containers
-     * in order to use custom tools not natively supported by Jenkins.
-    
-     */
     agent any
-    
-    /* The tools this pipeline needs are defined here. The available versions are the same as those
-     * available in maven or freestyle job.
-     */
-    
+    stages {
+        stage('Build and Push Docker Image') {
+            steps {
+                sh 'mvn clean package'
+                script {
+                    docker.withRegistry('https://http://hub.docker.com') {
+                        def app = docker.build("microsvc")
+                        app.push("1.0.0")
+                    }
+                }
+            }
+        }
+        stage('Deploy to Kubernetes') {
+            steps {
+                script {
+                    def kubeconfig = readFile("${env.HOME}/.kube/config")
+                    writeFile file: "${env.WORKSPACE}/kubeconfig", text: kubeconfig
+                    withKubeConfig([credentialsId: 'kubeconfig-credentials', kubeconfigFile: "${env.WORKSPACE}/kubeconfig", serverUrl: 'https://my-kubernetes-cluster']) {
+
+                        sh 'kubectl apply -f deployment.yaml'
+                        sh 'kubectl apply -f service.yaml'
+
+                        timeout(time: 5, unit: 'MINUTES') {
+                            sh 'kubectl rollout status deployment/my-deployment'
+                        }
+
+                        sh 'kubectl get services'
+                    }
+                }
+            }
+        }
+    }
+}
+
 	
     
        
